@@ -28,6 +28,9 @@
     document.querySelectorAll('[data-biz="city"]').forEach(function (el) { el.textContent = BIZ.city; });
     document.querySelectorAll('[data-biz="address"]').forEach(function (el) { el.textContent = BIZ.address; });
     document.querySelectorAll('[data-biz="phone"]').forEach(function (el) { el.textContent = BIZ.phone; });
+    /* tap-to-call must dial the personalized number, not the hardcoded default (fleet QA fix 2026-10-15).
+       digits-and-plus-only in the href so a hostile ?phone= param can't smuggle markup/JS. */
+    document.querySelectorAll('#call-cta, a[data-biz="phone"]').forEach(function (el) { el.setAttribute('href', 'tel:' + String(BIZ.phone).replace(/[^+\d]/g, '')); });
     document.querySelectorAll('[data-biz="host"]').forEach(function (el) { el.textContent = BIZ.host; });
     document.querySelectorAll('[data-biz="host-initial"]').forEach(function (el) { el.textContent = BIZ.host.charAt(0); });
     /* addr-card heading (fleet pattern: explicit id binding) */
@@ -193,6 +196,12 @@
     return String(s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
+  }
+
+  /* ---------- tap-to-call (fleet port 2026-10-19) ---------- */
+  function callLinkHtml() {
+    var href = 'tel:' + String(BIZ.phone).replace(/[^+\d]/g, '');
+    return '<a class="call-link" href="' + escapeHtml(href) + '">&#128222; Call ' + escapeHtml(BIZ.phone) + '</a>';
   }
 
   /* ---------- bot speech ---------- */
@@ -453,7 +462,7 @@
         escapeHtml(S.booking.reason) + '</b> &middot; ' + escapeHtml(S.booking.day) + ' at <b>' + escapeHtml(time) + '</b><br>Guest: <b>' + escapeHtml(S.booking.name) + '</b><br>' +
         'Reference: <span class="ref">' + ref + '</span><br><br>';
       if (S.booking.phone) line += 'We\'ll text your reminder. ';
-      line += 'Arrive with clean, dry hair if you can &mdash; we&rsquo;ll take great care of you. Anything else I can help with?';
+      line += 'Arrive with clean, dry hair if you can &mdash; we&rsquo;ll take great care of you. Anything else I can help with?<br><br>Prefer to talk it through? ' + callLinkHtml();
       S.mode = 'idle'; S.step = 0;
       return say(line, [{ label: '&#9986; Our services' }, { label: '&#128336; Hours & location' }]);
     }
@@ -579,13 +588,13 @@
     if (has(t, 'consult')) return say(consultHtml(), [{ label: '&#128197; Book an appointment' }]);
     /* location branch runs before service branches (house standard) */
     if (has(t, 'where', 'address', 'location', 'direction', 'park', 'find you')) {
-      return say('Find us at <b>' + escapeHtml(BIZ.address) + '</b> &mdash; easy in-and-out in ' + escapeHtml(BIZ.city) + ', free parking right outside. &#128205;<br><br>Call us anytime: <b>' + escapeHtml(BIZ.phone) + '</b>',
+      return say('Find us at <b>' + escapeHtml(BIZ.address) + '</b> &mdash; easy in-and-out in ' + escapeHtml(BIZ.city) + ', free parking right outside. &#128205;<br><br>' + callLinkHtml() + ' &mdash; we\'re happy to help anytime.',
         [{ label: '&#128197; Book an appointment' }]);
     }
     if (has(t, 'hour', 'open', 'close', 'when do you', 'what time')) return say(hoursHtml(), [{ label: '&#128197; Book an appointment' }]);
     if (has(t, 'service', 'offer', 'do you do', 'price list', 'menu')) return say(servicesHtml(), [{ label: '&#128197; Book an appointment' }]);
     if (has(t, 'price', 'cost', 'how much', 'expensive', 'cheap', '$$', 'fee')) return say('Honest pricing, in writing: signature cut &amp; blowout from <b>$65</b>, full color from <b>$95</b>, highlights from <b>$145</b>, balayage from <b>$185</b>, keratin from <b>$225</b>, bridal package from <b>$295</b>. Consultations are <b>always free</b>. &#10024;', [{ label: '&#9986; Our services' }]);
-    if (has(t, 'human', 'person', 'real person', 'call you', 'phone number', 'speak to', 'stylist', 'colorist')) return say('Of course &mdash; call us at <b>' + escapeHtml(BIZ.phone) + '</b> during open hours and a real human picks up. But honestly? I can handle <b>appointments, services, and pricing</b> right here, even at 2 AM. &#128521;', defaultChips());
+    if (has(t, 'human', 'person', 'real person', 'call you', 'phone number', 'speak to', 'stylist', 'colorist')) return say('Of course &mdash; ' + callLinkHtml() + ' during open hours and a real human picks up. But honestly? I can handle <b>appointments, services, and pricing</b> right here, even at 2 AM. &#128521;', defaultChips());
     if (has(t, 'thank', 'thanks', 'thx', 'great', 'awesome', 'perfect')) return say('Anytime! That\'s what I\'m here for. &#10024;', defaultChips());
     if (has(t, 'bye', 'goodbye', 'see you', 'later')) { S.mode = 'idle'; return say('Stay gorgeous &mdash; see you soon at ' + escapeHtml(BIZ.name) + '! &#10024;'); }
     if (/\b(hi+|hello|hey+|hola|yo)\b/.test(t) || has(t, 'good morning', 'good evening')) return say('Hey hey! &#128075; What can I do for you &mdash; <b>cuts</b>, <b>color</b>, or shall I <b>book your appointment</b>?', defaultChips());

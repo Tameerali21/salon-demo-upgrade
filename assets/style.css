@@ -30,6 +30,10 @@ h1,h2,h3{font-family:Georgia,"Times New Roman",serif; line-height:1.2; margin:0 
 .btn-gold:hover{transform:translateY(-2px); background:var(--gold-dark)}
 .btn-ghost{background:transparent; color:var(--coal-deep); border:2px solid var(--gold)}
 .btn-sm{padding:9px 20px; font-size:14px}
+.call-cta{margin-top:16px; background:var(--gold); color:#fff; box-shadow:0 8px 20px rgba(193,154,73,.4)}
+.call-cta:hover{transform:translateY(-2px); background:var(--gold-dark); color:#fff}
+.call-link{font-weight:700; color:var(--gold-dark); text-decoration:none; border-bottom:2px solid var(--gold)}
+.call-link:hover{border-color:var(--gold-dark)}
 
 /* ---------- hero ---------- */
 .hero{background:radial-gradient(1200px 500px at 80% -10%, #4a3d34 0%, var(--coal-deep) 55%, #0e0a08 100%); color:#fff; padding:84px 0 90px; position:relative; overflow:hidden}
