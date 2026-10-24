@@ -93,10 +93,11 @@
 
   /* conversation state */
   var S = {
-    mode: 'idle',          // idle | booking | afterhours | review
+    mode: 'idle',          // idle | booking | afterhours | review | quiz
     step: 0,
     booking: {},
     ah: {},
+    quiz: {},
     lastTopic: null
   };
 
@@ -379,7 +380,8 @@
       { label: '&#9986; Our services' },
       { label: '&#128197; Book an appointment' },
       { label: '&#127769; After-hours demo' },
-      { label: '&#11088; Rate your visit' }
+      { label: '&#11088; Rate your visit' },
+      { label: '&#129522; 60-sec style quiz', value: 'quiz' }
     ];
   }
 
@@ -567,17 +569,109 @@
       [{ label: '&#128197; Book an appointment' }, { label: 'No thanks', value: 'no thanks' }]);
   }
 
+  /* ---------- 60-sec style quiz (lead-capture, fleet port 2026-10-24) ----------
+     HONESTY (hard rule): Ruby NEVER invents prices, outcomes, reviews, availability,
+     or guarantees — the quiz promises a personalized style consultation plan plus an
+     exact written quote AT THE VISIT, never fabricated specifics. */
+  var QUIZ_GOALS = ['Fresh cut', 'Blonde & balayage', 'Rich color', 'Low-maintenance', 'Event-ready glam', 'Hair-health reset'];
+  var QUIZ_SERVICES = ['Cut & style', 'Balayage', 'Highlights', 'Full color', 'Keratin', 'Bridal'];
+  var QUIZ_TIMELINES = ['ASAP', 'This week', 'This month', 'Just exploring'];
+
+  function canonChoice(t, options) {
+    var tl = t.toLowerCase();
+    for (var i = 0; i < options.length; i++) {
+      if (tl === options[i].toLowerCase()) return options[i];
+    }
+    return t.trim().slice(0, 60); /* free text accepted, length-capped */
+  }
+
+  function startQuiz() {
+    S.mode = 'quiz'; S.step = 0; S.quiz = {};
+    return say('The <b>60-second style quiz!</b> &#129522;<br><br>' +
+      'Three quick questions and I&rsquo;ll build your <b>style profile</b> &mdash; then I&rsquo;ll put together a <b>personalized consultation plan</b> for your hair. No spam, no guesswork.<br><br>' +
+      '<b>What&rsquo;s your style goal?</b>',
+      QUIZ_GOALS.map(function (c) { return { label: c }; }));
+  }
+
+  function quizStep(text) {
+    var t = text.trim();
+    if (S.step === 0) {
+      S.quiz.goal = canonChoice(t, QUIZ_GOALS); S.step = 1;
+      return say('Got it &mdash; <b>' + escapeHtml(S.quiz.goal) + '</b>. &#10024;<br><br><b>Which service</b> are you most excited about?',
+        QUIZ_SERVICES.map(function (c) { return { label: c }; }));
+    }
+    if (S.step === 1) {
+      S.quiz.service = canonChoice(t, QUIZ_SERVICES); S.step = 2;
+      return say('Noted &mdash; <b>' + escapeHtml(S.quiz.service) + '</b> it is. &#10024;<br><br><b>When</b> are you thinking of coming in?',
+        QUIZ_TIMELINES.map(function (x) { return { label: x }; }));
+    }
+    if (S.step === 2) {
+      S.quiz.timeline = canonChoice(t, QUIZ_TIMELINES); S.step = 3;
+      return say('Noted &mdash; <b>' + escapeHtml(S.quiz.timeline) + '</b>. &#10024;<br><br><b>What&rsquo;s your name</b> for the style profile?');
+    }
+    if (S.step === 3) {
+      if (t.length < 2 || t.length > 40) {
+        return say('And your <b>name</b> for the style profile?');
+      }
+      S.quiz.name = t; S.step = 4;
+      return say('Thanks, ' + escapeHtml(cap(t.split(' ')[0])) + '! And the best <b>number</b> to send your consultation plan to?');
+    }
+    if (S.step === 4) {
+      var digits = t.replace(/\D/g, '');
+      if (digits.length < 7) {
+        return say('Hmm, that doesn\'t look like a complete number &mdash; mind double-checking it? <i>(digits only is fine)</i>');
+      }
+      S.quiz.phone = t;
+      return finishQuiz();
+    }
+  }
+
+  function finishQuiz() {
+    var q = S.quiz;
+    saveLead({
+      name: q.name,
+      phone: q.phone,
+      topic: 'Style quiz — qualified lead',
+      details: 'Goal ' + q.goal + ' · Service ' + q.service + ' · Timeline ' + q.timeline,
+      source: 'style quiz'
+    });
+    S.mode = 'idle'; S.step = 0; S.quiz = {};
+    return sayMany([
+      { html: '<b>&#9989; Quiz complete!</b> &#129522;<br><br>Here&rsquo;s your style profile:' },
+      {
+        dash: [
+          ['Goal', q.goal],
+          ['Service', q.service],
+          ['Timeline', q.timeline]
+        ]
+      },
+      {
+        html: 'I&rsquo;ll put together your <b>personalized style consultation plan</b> and send it to your number. ' +
+          'At your visit the team gives you an <b>exact written quote</b> before anything starts &mdash; <b>no surprise bills</b>, ever. ' +
+          'That&rsquo;s the whole point &mdash; <b>every visitor becomes an appointment</b>, not a guest lost to the salon down the street. Anything else I can help with?',
+        chips: defaultChips()
+      }
+    ]);
+  }
+
   /* ---------- main router ---------- */
   function route(text) {
     var t = text.toLowerCase().trim();
 
     if (S.mode === 'booking') return bookingStep(text);
     if (S.mode === 'afterhours') return afterHoursStep(text);
+    if (S.mode === 'quiz') return quizStep(text);
     if (S.mode === 'review' && S.step === 1) return reviewStep(text);
 
     if (has(t, 'book', 'appoint', 'schedul')) return startBooking();
     if (has(t, 'after hour', 'after-hour', 'closed', 'late night', 'midnight', '11:42')) return startAfterHours();
     if (has(t, 'review', 'rate', 'stars', 'feedback')) return startReview();
+    /* 60-sec style quiz: word-start keywords only — audited 2026-10-24 that NO
+       salon router keyword starts with 'qui' (91 keywords scanned), so the chip
+       value 'quiz' can never be hijacked, and none of the trigger phrases
+       word-start-match an existing keyword (the word-start 'buy' prefix bug
+       class caught on real-estate, 2026-10-20, does not apply here). */
+    if (has(t, 'quiz', 'style quiz', 'salon quiz', 'find my style', 'match quiz')) return startQuiz();
     if (has(t, 'balayage')) return say(balayageHtml(), [{ label: '&#128197; Book an appointment' }]);
     if (has(t, 'highlight', 'foil', 'lowlights')) return say(highlightsHtml(), [{ label: '&#128197; Book an appointment' }]);
     if (has(t, 'keratin', 'smoothing', 'frizz', 'repair', 'treatment', 'bond')) return say(keratinHtml(), [{ label: '&#128197; Book an appointment' }]);
