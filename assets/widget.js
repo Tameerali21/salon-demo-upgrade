@@ -93,12 +93,13 @@
 
   /* conversation state */
   var S = {
-    mode: 'idle',          // idle | booking | afterhours | review | quiz | prepquiz
+    mode: 'idle',          // idle | booking | afterhours | review | quiz | prepquiz | bridalquiz
     step: 0,
     booking: {},
     ah: {},
     quiz: {},
     prepquiz: {},
+    bridalquiz: {},
     lastTopic: null
   };
 
@@ -383,7 +384,8 @@
       { label: '&#127769; After-hours demo' },
       { label: '&#11088; Rate your visit' },
       { label: '&#129522; 60-sec style quiz', value: 'quiz' },
-      { label: '&#128203; 60-sec consult-prep quiz', value: 'prep quiz' }
+      { label: '&#128203; 60-sec consult-prep quiz', value: 'prep quiz' },
+      { label: '&#128141; 60-sec bridal quiz', value: 'bridal quiz' }
     ];
   }
 
@@ -727,6 +729,78 @@
     ]);
   }
 
+  /* ---------- 60-sec bridal quiz (fleet third-quiz port, 2026-11-02) ----------
+     HONESTY (hard rule): Ruby NEVER invents prices, outcomes, availability,
+     dates held, or guarantees — the quiz promises a personalized bridal plan
+     built around the party + timeline, sent to the visitor's number, with the
+     stylist confirming the actual trial date and an exact written quote AT THE
+     TRIAL, never fabricated specifics. */
+  var BRIDAL_PARTIES = ['Just me', 'Me + 2-3', 'Me + 4 or more', 'Whole bridal party'];
+  var BRIDAL_TIMELINES = ['This month', '1-3 months', '3-6 months', '6+ months away'];
+
+  function startBridalQuiz() {
+    S.mode = 'bridalquiz'; S.step = 0; S.bridalquiz = {};
+    return say('<b>&#128141; The 60-second bridal quiz!</b><br><br>' +
+      'Two quick questions and I&rsquo;ll build your <b>bridal profile</b> &mdash; then I&rsquo;ll put together a <b>personalized bridal plan</b> for your big day, plus your trial. No spam, no guesswork.<br><br>' +
+      '<b>First: who&rsquo;s getting styled?</b>',
+      BRIDAL_PARTIES.map(function (c) { return { label: c }; }));
+  }
+
+  function bridalQuizStep(text) {
+    var t = text.trim();
+    if (S.step === 0) {
+      S.bridalquiz.party = canonChoice(t, BRIDAL_PARTIES); S.step = 1;
+      return say('Got it &mdash; <b>' + escapeHtml(S.bridalquiz.party) + '</b>. &#128141;<br><br><b>When&rsquo;s the big day?</b>',
+        BRIDAL_TIMELINES.map(function (x) { return { label: x }; }));
+    }
+    if (S.step === 1) {
+      S.bridalquiz.timeline = canonChoice(t, BRIDAL_TIMELINES); S.step = 2;
+      return say('Noted &mdash; <b>' + escapeHtml(S.bridalquiz.timeline) + '</b> it is. &#128141;<br><br><b>What&rsquo;s your name</b> for the bridal profile?');
+    }
+    if (S.step === 2) {
+      if (t.length < 2 || t.length > 40) {
+        return say('And your <b>name</b> for the bridal profile?');
+      }
+      S.bridalquiz.name = t; S.step = 3;
+      return say('Thanks, ' + escapeHtml(cap(t.split(' ')[0])) + '! And the best <b>number</b> to send your bridal plan to?');
+    }
+    if (S.step === 3) {
+      var digits = t.replace(/\D/g, '');
+      if (digits.length < 7) {
+        return say('Hmm, that doesn\'t look like a complete number &mdash; mind double-checking it? <i>(digits only is fine)</i>');
+      }
+      S.bridalquiz.phone = t;
+      return finishBridalQuiz();
+    }
+  }
+
+  function finishBridalQuiz() {
+    var q = S.bridalquiz;
+    saveLead({
+      name: q.name,
+      phone: q.phone,
+      topic: 'Bridal quiz — qualified lead',
+      details: 'Party ' + q.party + ' · Timeline ' + q.timeline,
+      source: 'bridal quiz'
+    });
+    S.mode = 'idle'; S.step = 0; S.bridalquiz = {};
+    return sayMany([
+      { html: '<b>&#9989; Quiz complete!</b> &#128141;<br><br>Here&rsquo;s your bridal profile:' },
+      {
+        dash: [
+          ['Party', q.party],
+          ['Timeline', q.timeline]
+        ]
+      },
+      {
+        html: 'I&rsquo;ll put together your <b>personalized bridal plan</b> built around your party and your timeline and send it to your number. ' +
+          'Your stylist confirms the actual trial date with you, and at the trial you get an <b>exact written quote</b> before anything starts &mdash; <b>no surprise bills</b>, ever. ' +
+          'That&rsquo;s the whole point &mdash; <b>every bride becomes a booked trial</b>, not a guest lost to the salon down the street. Anything else I can help with?',
+        chips: defaultChips()
+      }
+    ]);
+  }
+
   /* ---------- main router ---------- */
   function route(text) {
     var t = text.toLowerCase().trim();
@@ -735,6 +809,7 @@
     if (S.mode === 'afterhours') return afterHoursStep(text);
     if (S.mode === 'quiz') return quizStep(text);
     if (S.mode === 'prepquiz') return prepQuizStep(text);
+    if (S.mode === 'bridalquiz') return bridalQuizStep(text);
     if (S.mode === 'review' && S.step === 1) return reviewStep(text);
 
     if (has(t, 'book', 'appoint', 'schedul')) return startBooking();
@@ -745,6 +820,16 @@
        value 'quiz' can never be hijacked, and none of the trigger phrases
        word-start-match an existing keyword (the word-start 'buy' prefix bug
        class caught on real-estate, 2026-10-20, does not apply here). */
+    /* 60-sec bridal quiz: trigger BEFORE the prep-quiz and style-quiz triggers
+       — the chip value 'bridal quiz' contains 'quiz', so the style quiz's
+       word-start 'quiz' match would otherwise hijack it into the style quiz,
+       and 'bridal' is also a service-branch keyword below (the real-estate
+       'buy'/'buyer' bug class, 2026-10-20).
+       AUDIT (verified live in the harness, not just asserted):
+       bare 'quiz' still starts the style quiz; bare 'prep' triggers nothing;
+       bare 'bridal' still reaches the bridal service branch; 'bridal quiz'
+       starts the bridal quiz; the style/prep triggers are unchanged. */
+    if (has(t, 'bridal quiz')) return startBridalQuiz();
     /* 60-sec consult-prep quiz: trigger BEFORE the style-quiz trigger — the chip
        value 'prep quiz' contains 'quiz', so the style quiz's word-start 'quiz'
        match would otherwise hijack it into the style quiz (the real-estate
