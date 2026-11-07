@@ -93,13 +93,14 @@
 
   /* conversation state */
   var S = {
-    mode: 'idle',          // idle | booking | afterhours | review | quiz | prepquiz | bridalquiz
+    mode: 'idle',          // idle | booking | afterhours | review | quiz | prepquiz | bridalquiz | colorquiz
     step: 0,
     booking: {},
     ah: {},
     quiz: {},
     prepquiz: {},
     bridalquiz: {},
+    colorquiz: {},
     lastTopic: null
   };
 
@@ -385,7 +386,8 @@
       { label: '&#11088; Rate your visit' },
       { label: '&#129522; 60-sec style quiz', value: 'quiz' },
       { label: '&#128203; 60-sec consult-prep quiz', value: 'prep quiz' },
-      { label: '&#128141; 60-sec bridal quiz', value: 'bridal quiz' }
+      { label: '&#128141; 60-sec bridal quiz', value: 'bridal quiz' },
+      { label: '&#127912; 60-sec color quiz', value: 'color quiz' }
     ];
   }
 
@@ -801,6 +803,78 @@
     ]);
   }
 
+  /* ---------- 60-sec color quiz (fleet fourth-quiz port, 2026-11-07) ----------
+     HONESTY (hard rule): Ruby NEVER invents prices, outcomes, before/afters,
+     availability, dates held, or guarantees — the quiz promises a personalized
+     color plan built around the visitor's goal + maintenance, the stylist
+     confirms the actual color slot on the call, and an exact written quote AT
+     THE VISIT, never fabricated specifics. */
+  var COLOR_GOALS = ['Full color refresh', 'Lived-in balayage', 'Cover greys', 'Bold / vivid color'];
+  var COLOR_MAINTENANCE = ['Low maintenance', 'Every 4–6 weeks', 'Every 8+ weeks', 'Not sure yet'];
+
+  function startColorQuiz() {
+    S.mode = 'colorquiz'; S.step = 0; S.colorquiz = {};
+    return say('<b>&#127912; The 60-second color quiz!</b><br><br>' +
+      'Two quick questions and I&rsquo;ll build your <b>color profile</b> &mdash; then I&rsquo;ll put together a <b>personalized color plan</b> for your hair. No spam, no guesswork.<br><br>' +
+      '<b>What&rsquo;s your color goal?</b>',
+      COLOR_GOALS.map(function (c) { return { label: c }; }));
+  }
+
+  function colorQuizStep(text) {
+    var t = text.trim();
+    if (S.step === 0) {
+      S.colorquiz.goal = canonChoice(t, COLOR_GOALS); S.step = 1;
+      return say('Got it &mdash; <b>' + escapeHtml(S.colorquiz.goal) + '</b>. &#127912;<br><br><b>How often</b> do you want to maintain it?',
+        COLOR_MAINTENANCE.map(function (x) { return { label: x }; }));
+    }
+    if (S.step === 1) {
+      S.colorquiz.maintenance = canonChoice(t, COLOR_MAINTENANCE); S.step = 2;
+      return say('Noted &mdash; <b>' + escapeHtml(S.colorquiz.maintenance) + '</b> it is. &#127912;<br><br><b>What&rsquo;s your name</b> for the color profile?');
+    }
+    if (S.step === 2) {
+      if (t.length < 2 || t.length > 40) {
+        return say('And your <b>name</b> for the color profile?');
+      }
+      S.colorquiz.name = t; S.step = 3;
+      return say('Thanks, ' + escapeHtml(cap(t.split(' ')[0])) + '! And the best <b>number</b> to send your color plan to?');
+    }
+    if (S.step === 3) {
+      var digits = t.replace(/\D/g, '');
+      if (digits.length < 7) {
+        return say('Hmm, that doesn\'t look like a complete number &mdash; mind double-checking it? <i>(digits only is fine)</i>');
+      }
+      S.colorquiz.phone = t;
+      return finishColorQuiz();
+    }
+  }
+
+  function finishColorQuiz() {
+    var q = S.colorquiz;
+    saveLead({
+      name: q.name,
+      phone: q.phone,
+      topic: 'Color quiz — qualified lead',
+      details: 'Goal ' + q.goal + ' · Maintenance ' + q.maintenance,
+      source: 'color quiz'
+    });
+    S.mode = 'idle'; S.step = 0; S.colorquiz = {};
+    return sayMany([
+      { html: '<b>&#9989; Quiz complete!</b> &#127912;<br><br>Here&rsquo;s your color profile:' },
+      {
+        dash: [
+          ['Goal', q.goal],
+          ['Maintenance', q.maintenance]
+        ]
+      },
+      {
+        html: 'I&rsquo;ll put together your <b>personalized color plan</b> built around your goal and how often you want to maintain it and send it to your number. ' +
+          'Your stylist confirms the actual color slot with you on the call, and at the visit you get an <b>exact written quote</b> before anything starts &mdash; <b>no surprise bills</b>, ever. ' +
+          'That&rsquo;s the whole point &mdash; <b>every visitor becomes a booked color appointment</b>, not a guest lost to the salon down the street. Anything else I can help with?',
+        chips: defaultChips()
+      }
+    ]);
+  }
+
   /* ---------- main router ---------- */
   function route(text) {
     var t = text.toLowerCase().trim();
@@ -810,6 +884,7 @@
     if (S.mode === 'quiz') return quizStep(text);
     if (S.mode === 'prepquiz') return prepQuizStep(text);
     if (S.mode === 'bridalquiz') return bridalQuizStep(text);
+    if (S.mode === 'colorquiz') return colorQuizStep(text);
     if (S.mode === 'review' && S.step === 1) return reviewStep(text);
 
     if (has(t, 'book', 'appoint', 'schedul')) return startBooking();
@@ -820,6 +895,18 @@
        value 'quiz' can never be hijacked, and none of the trigger phrases
        word-start-match an existing keyword (the word-start 'buy' prefix bug
        class caught on real-estate, 2026-10-20, does not apply here). */
+    /* 60-sec color quiz: trigger FIRST, before the bridal-quiz trigger (and
+       therefore before prep/style triggers and the 'color' service branch) —
+       the chip value 'color quiz' contains 'quiz', so the style quiz's
+       word-start 'quiz' match would otherwise hijack it into the style quiz,
+       and it starts with 'color', so the color service branch would otherwise
+       hijack it into colorHtml() (the real-estate 'buy'/'buyer' bug class,
+       2026-10-20).
+       AUDIT (verified live in the harness, not just asserted):
+       bare 'color' still reaches colorHtml(); bare 'quiz' still starts the
+       style quiz; 'prep quiz' still starts the prep quiz; 'bridal quiz'
+       still starts the bridal quiz — all probed in the harness. */
+    if (has(t, 'color quiz')) return startColorQuiz();
     /* 60-sec bridal quiz: trigger BEFORE the prep-quiz and style-quiz triggers
        — the chip value 'bridal quiz' contains 'quiz', so the style quiz's
        word-start 'quiz' match would otherwise hijack it into the style quiz,
