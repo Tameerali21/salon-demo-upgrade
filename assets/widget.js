@@ -93,7 +93,7 @@
 
   /* conversation state */
   var S = {
-    mode: 'idle',          // idle | booking | afterhours | review | quiz | prepquiz | bridalquiz | colorquiz
+    mode: 'idle',          // idle | booking | afterhours | review | quiz | prepquiz | bridalquiz | colorquiz | treatmentquiz
     step: 0,
     booking: {},
     ah: {},
@@ -101,6 +101,7 @@
     prepquiz: {},
     bridalquiz: {},
     colorquiz: {},
+    treatmentquiz: {},
     lastTopic: null
   };
 
@@ -387,7 +388,8 @@
       { label: '&#129522; 60-sec style quiz', value: 'quiz' },
       { label: '&#128203; 60-sec consult-prep quiz', value: 'prep quiz' },
       { label: '&#128141; 60-sec bridal quiz', value: 'bridal quiz' },
-      { label: '&#127912; 60-sec color quiz', value: 'color quiz' }
+      { label: '&#127912; 60-sec color quiz', value: 'color quiz' },
+      { label: '&#128186; 60-sec treatment quiz', value: 'treatment quiz' }
     ];
   }
 
@@ -875,6 +877,92 @@
     ]);
   }
 
+  /* ---------- 60-sec treatment quiz (fleet fifth-quiz port, 2026-11-12) ----------
+     HONESTY (hard rule): Ruby NEVER invents prices, outcomes, before/afters,
+     availability, dates held, or guarantees — the quiz promises a personalized
+     treatment plan built around the visitor's goal + treatment, the stylist
+     confirms the actual treatment on the call, and an exact written quote AT
+     THE VISIT, never fabricated specifics.
+     ROUTER AUDIT 2026-11-12: the trigger sits FIRST among quiz triggers,
+     before the color-quiz trigger — the chip value 'treatment quiz' contains
+     'quiz', so the style quiz's word-start 'quiz' match would otherwise hijack
+     it into the style quiz, and it starts with 'treatment', so the keratin
+     service branch ('keratin/smoothing/frizz/repair/treatment/bond') would
+     otherwise hijack it into keratinHtml() (the real-estate 'buy'/'buyer' bug
+     class, 2026-10-20). Q1 chip 'Repair damage' contains 'repair' and Q2 chip
+     'Keratin smoothing' contains 'keratin' and 'Scalp treatment' contains
+     'treatment' — all safe because the mode dispatch above the router sends
+     quiz-mode input to treatmentQuizStep before any branch is checked.
+     AUDIT (verified live in the harness, not just asserted):
+     bare 'treatment' still reaches keratinHtml(); bare 'keratin'/'frizz'/
+     'repair' still reach keratinHtml(); bare 'quiz' still starts the style
+     quiz; 'color quiz'/'bridal quiz'/'prep quiz' still start theirs. */
+  var TREATMENT_GOALS = ['Smooth frizz', 'Repair damage', 'Deep hydration', 'Healthy scalp'];
+  var TREATMENT_TYPES = ['Keratin smoothing', 'Deep conditioning mask', 'Scalp treatment', 'Bond repair'];
+
+  function startTreatmentQuiz() {
+    S.mode = 'treatmentquiz'; S.step = 0; S.treatmentquiz = {};
+    return say('<b>&#128186; The 60-second treatment quiz!</b><br><br>' +
+      'Two quick questions and I&rsquo;ll build your <b>treatment profile</b> &mdash; then I&rsquo;ll put together a <b>personalized treatment plan</b> for your hair. No spam, no guesswork.<br><br>' +
+      '<b>What&rsquo;s your hair&rsquo;s biggest need right now?</b>',
+      TREATMENT_GOALS.map(function (c) { return { label: c }; }));
+  }
+
+  function treatmentQuizStep(text) {
+    var t = text.trim();
+    if (S.step === 0) {
+      S.treatmentquiz.goal = canonChoice(t, TREATMENT_GOALS); S.step = 1;
+      return say('Got it &mdash; <b>' + escapeHtml(S.treatmentquiz.goal) + '</b>. &#128186;<br><br><b>Which treatment sounds right for you?</b>',
+        TREATMENT_TYPES.map(function (x) { return { label: x }; }));
+    }
+    if (S.step === 1) {
+      S.treatmentquiz.type = canonChoice(t, TREATMENT_TYPES); S.step = 2;
+      return say('Noted &mdash; <b>' + escapeHtml(S.treatmentquiz.type) + '</b> it is. &#128186;<br><br><b>What&rsquo;s your name</b> for the treatment profile?');
+    }
+    if (S.step === 2) {
+      if (t.length < 2 || t.length > 40) {
+        return say('And your <b>name</b> for the treatment profile?');
+      }
+      S.treatmentquiz.name = t; S.step = 3;
+      return say('Thanks, ' + escapeHtml(cap(t.split(' ')[0])) + '! And the best <b>number</b> to send your treatment plan to?');
+    }
+    if (S.step === 3) {
+      var digits = t.replace(/\D/g, '');
+      if (digits.length < 7) {
+        return say('Hmm, that doesn\'t look like a complete number &mdash; mind double-checking it? <i>(digits only is fine)</i>');
+      }
+      S.treatmentquiz.phone = t;
+      return finishTreatmentQuiz();
+    }
+  }
+
+  function finishTreatmentQuiz() {
+    var q = S.treatmentquiz;
+    saveLead({
+      name: q.name,
+      phone: q.phone,
+      topic: 'Treatment quiz — qualified lead',
+      details: 'Goal ' + q.goal + ' · Treatment ' + q.type,
+      source: 'treatment quiz'
+    });
+    S.mode = 'idle'; S.step = 0; S.treatmentquiz = {};
+    return sayMany([
+      { html: '<b>&#9989; Quiz complete!</b> &#128186;<br><br>Here&rsquo;s your treatment profile:' },
+      {
+        dash: [
+          ['Goal', q.goal],
+          ['Treatment', q.type]
+        ]
+      },
+      {
+        html: 'I&rsquo;ll put together your <b>personalized treatment plan</b> built around your goal and the treatment you picked and send it to your number. ' +
+          'Your stylist confirms the actual treatment with you on the call, and at the visit you get an <b>exact written quote</b> before anything starts &mdash; <b>no surprise bills</b>, ever. ' +
+          'That&rsquo;s the whole point &mdash; <b>every visitor becomes a booked treatment appointment</b>, not a guest lost to the salon down the street. Anything else I can help with?',
+        chips: defaultChips()
+      }
+    ]);
+  }
+
   /* ---------- main router ---------- */
   function route(text) {
     var t = text.toLowerCase().trim();
@@ -885,6 +973,7 @@
     if (S.mode === 'prepquiz') return prepQuizStep(text);
     if (S.mode === 'bridalquiz') return bridalQuizStep(text);
     if (S.mode === 'colorquiz') return colorQuizStep(text);
+    if (S.mode === 'treatmentquiz') return treatmentQuizStep(text);
     if (S.mode === 'review' && S.step === 1) return reviewStep(text);
 
     if (has(t, 'book', 'appoint', 'schedul')) return startBooking();
@@ -895,6 +984,18 @@
        value 'quiz' can never be hijacked, and none of the trigger phrases
        word-start-match an existing keyword (the word-start 'buy' prefix bug
        class caught on real-estate, 2026-10-20, does not apply here). */
+    /* 60-sec treatment quiz: trigger FIRST among quiz triggers, before the
+       color-quiz trigger — the chip value 'treatment quiz' contains 'quiz',
+       so the style quiz's word-start 'quiz' match would otherwise hijack it
+       into the style quiz, and it starts with 'treatment', so the keratin
+       service branch ('keratin/smoothing/frizz/repair/treatment/bond') would
+       otherwise hijack it into keratinHtml() (the real-estate 'buy'/'buyer'
+       bug class, 2026-10-20).
+       AUDIT (verified live in the harness, not just asserted):
+       bare 'treatment' still reaches keratinHtml(); bare 'keratin'/'frizz'/
+       'repair' still reach keratinHtml(); bare 'quiz' still starts the style
+       quiz; 'color quiz'/'bridal quiz'/'prep quiz' still start theirs. */
+    if (has(t, 'treatment quiz')) return startTreatmentQuiz();
     /* 60-sec color quiz: trigger FIRST, before the bridal-quiz trigger (and
        therefore before prep/style triggers and the 'color' service branch) —
        the chip value 'color quiz' contains 'quiz', so the style quiz's
