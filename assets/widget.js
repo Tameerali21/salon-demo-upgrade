@@ -389,7 +389,7 @@
       { label: '&#128203; 60-sec consult-prep quiz', value: 'prep quiz' },
       { label: '&#128141; 60-sec bridal quiz', value: 'bridal quiz' },
       { label: '&#127912; 60-sec color quiz', value: 'color quiz' },
-      { label: '&#128186; 60-sec treatment quiz', value: 'treatment quiz' }
+      { label: '&#128486; 60-sec treatment quiz', value: 'treatment quiz' }
     ];
   }
 
@@ -902,7 +902,7 @@
 
   function startTreatmentQuiz() {
     S.mode = 'treatmentquiz'; S.step = 0; S.treatmentquiz = {};
-    return say('<b>&#128186; The 60-second treatment quiz!</b><br><br>' +
+    return say('<b>&#128486; The 60-second treatment quiz!</b><br><br>' +
       'Two quick questions and I&rsquo;ll build your <b>treatment profile</b> &mdash; then I&rsquo;ll put together a <b>personalized treatment plan</b> for your hair. No spam, no guesswork.<br><br>' +
       '<b>What&rsquo;s your hair&rsquo;s biggest need right now?</b>',
       TREATMENT_GOALS.map(function (c) { return { label: c }; }));
@@ -912,12 +912,12 @@
     var t = text.trim();
     if (S.step === 0) {
       S.treatmentquiz.goal = canonChoice(t, TREATMENT_GOALS); S.step = 1;
-      return say('Got it &mdash; <b>' + escapeHtml(S.treatmentquiz.goal) + '</b>. &#128186;<br><br><b>Which treatment sounds right for you?</b>',
+      return say('Got it &mdash; <b>' + escapeHtml(S.treatmentquiz.goal) + '</b>. &#128486;<br><br><b>Which treatment sounds right for you?</b>',
         TREATMENT_TYPES.map(function (x) { return { label: x }; }));
     }
     if (S.step === 1) {
       S.treatmentquiz.type = canonChoice(t, TREATMENT_TYPES); S.step = 2;
-      return say('Noted &mdash; <b>' + escapeHtml(S.treatmentquiz.type) + '</b> it is. &#128186;<br><br><b>What&rsquo;s your name</b> for the treatment profile?');
+      return say('Noted &mdash; <b>' + escapeHtml(S.treatmentquiz.type) + '</b> it is. &#128486;<br><br><b>What&rsquo;s your name</b> for the treatment profile?');
     }
     if (S.step === 2) {
       if (t.length < 2 || t.length > 40) {
@@ -947,7 +947,7 @@
     });
     S.mode = 'idle'; S.step = 0; S.treatmentquiz = {};
     return sayMany([
-      { html: '<b>&#9989; Quiz complete!</b> &#128186;<br><br>Here&rsquo;s your treatment profile:' },
+      { html: '<b>&#9989; Quiz complete!</b> &#128486;<br><br>Here&rsquo;s your treatment profile:' },
       {
         dash: [
           ['Goal', q.goal],
